@@ -3,6 +3,11 @@ import subprocess
 import yt_dlp
 import sys
 import urllib.parse
+import re
+
+def sanitize_filename(filename):
+    """Удаляет недопустимые символы из имени файла для Windows"""
+    return re.sub(r'[<>:"/\|?*]', '', filename)
 
 def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
     ydl_opts = {
@@ -27,7 +32,11 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
                     if choice.isdigit() and int(choice) in range(1, 12):
                         choice = int(choice)
                         if choice == 11:
-                            result = ydl.extract_info(f"ytsearch10:{search_term}&sp={result['continuation']}", download=False)
+                            if 'continuation' in result:
+                                result = ydl.extract_info(f"ytsearch10:{search_term}&sp={result['continuation']}", download=False)
+                            else:
+                                print("Больше нет видео для загрузки.")
+                                return
                             continue
                         else:
                             video_url = result['entries'][choice - 1]['url']
@@ -67,9 +76,9 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
         print("Скачивание видео не удалось!")
         return
 
-    # Rename the video file to the video title
+    # Rename the video file to the sanitized video title
     file_extension = downloaded_file.split('.')[-1]
-    new_file_name = f"{video_title}.{file_extension}"
+    new_file_name = f"{sanitize_filename(video_title)}.{file_extension}"
     os.rename(downloaded_file, new_file_name)
 
     # Playing the video with the default video player
@@ -86,6 +95,7 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
 def main():
     print("Напишите 1 чтобы найти видео с помощью поиска")
     print("Напишите 2 чтобы найти видео с помощью URL")
+    []
     print("Напишите 3 чтобы использовать продвинутый поиск (рекомендуется)")
     choice = input("Ваш выбор: ")
 
@@ -96,7 +106,6 @@ def main():
         video_url = input("Введите URL видео: ")
         download_and_play_youtube_video(video_url, by_url=True)
     elif choice == '3':
-        []
         search_term = input("Введите запрос для продвинутого поиска: ")
         download_and_play_youtube_video(search_term, by_url=False, advanced_search=True)
     else:
