@@ -2,25 +2,64 @@ import os
 import subprocess
 import yt_dlp
 import sys
-import urllib.parse
 import re
+import requests
+import random
+
+# Функция для получения списка прокси-серверов
+def get_proxy_list():
+    proxy_api_url = "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt"
+    response = requests.get(proxy_api_url)
+    return response.text.splitlines()
+
+# Функция случайного выбора прокси-сервера из списка
+def get_random_proxy(proxy_list):
+    return random.choice(proxy_list)
+
+# Функция проверки прокси-сервера
+def check_proxy(proxy_url):
+    try:
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url
+        }
+        response = requests.get("http://www.google.com", proxies=proxies, timeout=10, verify=False)
+        if response.status_code == 200:
+            print("Прокси работает")
+        else:
+            print("Прокси не работает, статус:", response.status_code)
+            sys.exit()
+    except Exception as e:
+        print("Ошибка подключения к прокси:", str(e))
+        sys.exit()
 
 def sanitize_filename(filename):
     """Удаляет недопустимые символы из имени файла для Windows"""
     return re.sub(r'[<>:"/\|?*]', '', filename)
 
 def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
+    proxy_list = get_proxy_list()
+    proxy_url = get_random_proxy(proxy_list)  # Получаем случайный прокси URL
+    print(f"Используемый прокси-сервер: {proxy_url}")
+    check_proxy(proxy_url)  # Проверяем прокси
     ydl_opts = {
         'format': 'best',
-        'outtmpl': 'downloaded_video.%(ext)s',  # Save the video in the current directory
+        'outtmpl': 'downloaded_video.%(ext)s',  # Сохраняем видео в текущей директории
+        'proxy': proxy_url,
+        'nocheckcertificate': True,  # Отключение проверки сертификатов
     }
     video_url = None
     video_title = None
 
     if advanced_search:
         query = f"ytsearch10:{search_term}"
-        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-            result = ydl.extract_info(query, download=False)
+        with yt_dlp.YoutubeDL({'quiet': True, 'proxy': proxy_url}) as ydl:
+            try:
+                result = ydl.extract_info(query, download=False)
+            except yt_dlp.utils.DownloadError as e:
+                print(f"Ошибка при разборе JSON: {str(e)}")
+                return
+
             if result and 'entries' in result:
                 while True:
                     print("Введите цифру для выбора видео или 11 для загрузки ещё 10 видео:")
@@ -37,10 +76,9 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
                             else:
                                 print("Больше нет видео для загрузки.")
                                 return
-                            continue
                         else:
-                            video_url = result['entries'][choice - 1]['url']
-                            video_title = result['entries'][choice - 1]['title']
+                            video_url = result['entries'][choice - 1].get('url')
+                            video_title = result['entries'][choice - 1].get('title')
                             break
                     else:
                         print("Неверный выбор. Попробуйте снова.")
@@ -52,20 +90,25 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
             video_url = search_term
         else:
             query = f"ytsearch:{search_term}"
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                result = ydl.extract_info(query, download=False)
+            with yt_dlp.YoutubeDL({'quiet': True, 'proxy': proxy_url}) as ydl:
+                try:
+                    result = ydl.extract_info(query, download=False)
+                except yt_dlp.utils.DownloadError as e:
+                    print(f"Ошибка при разборе JSON: {str(e)}")
+                    return
                 if result and 'entries' in result:
-                    video_url = result['entries'][0]['url']
-                    video_title = result['entries'][0]['title']
-                else:
-                    print("Видео на найдено по запросу. Попробуйте снова.")
+                    entry = result['entries'][0] if result['entries'] else {}
+                    video_url = entry.get('url')
+                    video_title = entry.get('title')
+                if not video_url or not video_title:
+                    print("Видео не найдено по запросу. Попробуйте снова.")
                     return
 
-    # Using yt-dlp to download the video
+    # Использование yt-dlp для загрузки видео
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([video_url])
 
-    # Find the downloaded file name
+    # Поиск имени загруженного файла
     downloaded_file = None
     for file in os.listdir('.'):
         if file.startswith('downloaded_video'):
@@ -76,27 +119,28 @@ def download_and_play_youtube_video(search_term, by_url, advanced_search=False):
         print("Скачивание видео не удалось!")
         return
 
-    # Rename the video file to the sanitized video title
+    # Переименование файла видео в соответствие с названием видео
     file_extension = downloaded_file.split('.')[-1]
     new_file_name = f"{sanitize_filename(video_title)}.{file_extension}"
     os.rename(downloaded_file, new_file_name)
 
-    # Playing the video with the default video player
+    # Воспроизведение видео с помощью стандартного видеоплеера
     if os.name == 'nt':  # Windows
         os.startfile(new_file_name)
-    elif os.name == 'posix':  # macOS and Linux
+    elif os.name == 'posix':  # macOS и Linux
         subprocess.call(('open', new_file_name) if sys.platform == 'darwin' else ('xdg-open', new_file_name))
 
-    # Wait for video to finish playing then delete it
+    # Ожидает завершения просмотра видео, затем удаляет файл
     input("Press Enter after you finish watching the video...")
     os.remove(new_file_name)
 
-# Main script
+# Главный скрипт
 def main():
+    os.system("yt-dlp -U")  # Команда для обновления yt-dlp
     print("Напишите 1 чтобы найти видео с помощью поиска")
     print("Напишите 2 чтобы найти видео с помощью URL")
-    []
     print("Напишите 3 чтобы использовать продвинутый поиск (рекомендуется)")
+    []
     choice = input("Ваш выбор: ")
 
     if choice == '1':
